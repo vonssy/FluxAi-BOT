@@ -286,12 +286,14 @@ class FluxAI:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return self.log(
+                self.log(
                     f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
                     f"{Fore.RED+Style.BRIGHT} Login Failed {Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
                 )
+
+        return None
             
     async def generate_image(self, address: str, prompt: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/generate-image"
@@ -315,13 +317,15 @@ class FluxAI:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return self.log(
+                self.log(
                     f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
                     f"{Fore.BLUE + Style.BRIGHT} Error  : {Style.RESET_ALL}"
                     f"{Fore.RED+Style.BRIGHT}Generate Image Failed{Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT} - {Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT}{str(e)}{Style.RESET_ALL}"
                 )
+
+        return None
             
     async def process_user_login(self, address: str, use_proxy: bool, rotate_proxy: bool):
         while True:
