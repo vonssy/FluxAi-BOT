@@ -1,13 +1,14 @@
 from aiohttp import (
     ClientResponseError,
     ClientSession,
-    ClientTimeout
+    ClientTimeout,
+    BasicAuth
 )
 from aiohttp_socks import ProxyConnector
 from fake_useragent import FakeUserAgent
 from datetime import datetime
 from colorama import *
-import asyncio, random, json, os, pytz
+import asyncio, random, json, re, os, pytz
 
 wib = pytz.timezone('Asia/Jakarta')
 
@@ -24,16 +25,12 @@ class FluxAI:
             "User-Agent": FakeUserAgent().random
         }
         self.BASE_API = "https://fluxai-backend.up.railway.app/api"
-        self.PAGE_URL = "https://generate.flux-ai.me/"
+        self.PAGE_URL = "https://generate.flux-ai.me"
         self.SITE_KEY = "6LeYKVErAAAAAEssdGfwCOF8Dv-85d7jgNmq6kF4"
         self.CAPTCHA_KEY = None
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
-        self.recaptcha_tokens = {}
-        self.credits_left = {}
-        self.min_delay = 0
-        self.max_delay = 0
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -48,7 +45,7 @@ class FluxAI:
     def welcome(self):
         print(
             f"""
-        {Fore.GREEN + Style.BRIGHT}Auto Generate Image {Fore.BLUE + Style.BRIGHT}Flux AI - BOT
+        {Fore.GREEN + Style.BRIGHT}Flux AI {Fore.BLUE + Style.BRIGHT}Auto BOT
             """
             f"""
         {Fore.GREEN + Style.BRIGHT}Rey? {Fore.YELLOW + Style.BRIGHT}<INI WATERMARK>
@@ -89,7 +86,7 @@ class FluxAI:
         try:
             if use_proxy_choice == 1:
                 async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                    async with session.get("https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text") as response:
+                    async with session.get("https://raw.githubusercontent.com/monosans/proxy-list/refs/heads/main/proxies/http.txt") as response:
                         response.raise_for_status()
                         content = await response.text()
                         with open(filename, 'w') as f:
@@ -121,22 +118,42 @@ class FluxAI:
             return proxies
         return f"http://{proxies}"
 
-    def get_next_proxy_for_account(self, token):
-        if token not in self.account_proxies:
+    def get_next_proxy_for_account(self, account):
+        if account not in self.account_proxies:
             if not self.proxies:
                 return None
             proxy = self.check_proxy_schemes(self.proxies[self.proxy_index])
-            self.account_proxies[token] = proxy
+            self.account_proxies[account] = proxy
             self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
-        return self.account_proxies[token]
+        return self.account_proxies[account]
 
-    def rotate_proxy_for_account(self, token):
+    def rotate_proxy_for_account(self, account):
         if not self.proxies:
             return None
         proxy = self.check_proxy_schemes(self.proxies[self.proxy_index])
-        self.account_proxies[token] = proxy
+        self.account_proxies[account] = proxy
         self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
         return proxy
+    
+    def build_proxy_config(self, proxy=None):
+        if not proxy:
+            return None, None, None
+
+        if proxy.startswith("socks"):
+            connector = ProxyConnector.from_url(proxy)
+            return connector, None, None
+
+        elif proxy.startswith("http"):
+            match = re.match(r"http://(.*?):(.*?)@(.*)", proxy)
+            if match:
+                username, password, host_port = match.groups()
+                clean_url = f"http://{host_port}"
+                auth = BasicAuth(username, password)
+                return None, clean_url, auth
+            else:
+                return None, proxy, None
+
+        raise Exception("Unsupported Proxy Type.")
         
     def mask_account(self, account):
         try:
@@ -146,7 +163,7 @@ class FluxAI:
             return None
         
     async def print_timer(self):
-        for remaining in range(random.randint(self.min_delay, self.max_delay), 0, -1):
+        for remaining in range(random.randint(5, 10), 0, -1):
             print(
                 f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
                 f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
@@ -190,35 +207,28 @@ class FluxAI:
                 else:
                     print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
 
-        while True:
-            try:
-                min_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip())
-
-                if min_delay >= 0:
-                    self.min_delay = min_delay
-                    break
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Min Delay Must >= 0.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
-
-        while True:
-            try:
-                max_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip())
-
-                if max_delay >= 0:
-                    self.max_delay = max_delay
-                    break
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Max Delay Must >= Min Delay.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
-
         return choose, rotate
     
-    async def solve_recaptcha(self, address: str, proxy=None, retries=5):
+    async def check_connection(self, proxy_url=None):
+        connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+        try:
+            async with ClientSession(connector=connector, timeout=ClientTimeout(total=30)) as session:
+                async with session.get(url="https://api.ipify.org?format=json", proxy=proxy, proxy_auth=proxy_auth) as response:
+                    response.raise_for_status()
+                    return True
+        except (Exception, ClientResponseError) as e:
+            self.log(
+                f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} Connection Not 200 OK {Style.RESET_ALL}"
+                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+        
+        return None
+    
+    async def solve_recaptcha(self, proxy_url=None, retries=5):
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     
@@ -226,7 +236,7 @@ class FluxAI:
                         return None
 
                     url = f"http://2captcha.com/in.php?key={self.CAPTCHA_KEY}&method=userrecaptcha&googlekey={self.SITE_KEY}&pageurl={self.PAGE_URL}&json=1"
-                    async with session.get(url=url) as response:
+                    async with session.get(url=url, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         result = await response.json()
 
@@ -243,13 +253,13 @@ class FluxAI:
 
                         for _ in range(30):
                             res_url = f"http://2captcha.com/res.php?key={self.CAPTCHA_KEY}&action=get&id={request_id}&json=1"
-                            async with session.get(url=res_url) as res_response:
+                            async with session.get(url=res_url, proxy=proxy, proxy_auth=proxy_auth) as res_response:
                                 res_response.raise_for_status()
                                 res_result = await res_response.json()
 
                                 if res_result.get("status") == 1:
-                                    self.recaptcha_tokens[address] = res_result.get("request")
-                                    return True
+                                    recaptcha_token = res_result.get("request")
+                                    return recaptcha_token
                                 elif res_result.get("request") == "CAPCHA_NOT_READY":
                                     self.log(
                                         f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
@@ -267,19 +277,20 @@ class FluxAI:
                     continue
                 return None
     
-    async def user_login(self, address: str, proxy=None, retries=5):
+    async def user_login(self, address: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/login"
         headers = {
             **self.HEADERS,
             "Content-Length": "0",
+            "Content-Type": "application/json",
             "X-Wallet-Address": address
         }
         await asyncio.sleep(3)
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, ssl=False) as response:
+                    async with session.post(url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -292,25 +303,24 @@ class FluxAI:
                     f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
                 )
-
-        return None
+                return None
             
-    async def generate_image(self, address: str, prompt: str, proxy=None, retries=5):
+    async def generate_image(self, address: str, recaptcha_token: str, prompt: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/generate-image"
         data = json.dumps({"prompt":prompt})
         headers = {
             **self.HEADERS,
             "Content-Length": str(len(data)),
             "Content-Type": "application/json",
-            "X-Recaptcha-Token": self.recaptcha_tokens[address],
+            "X-Recaptcha-Token": recaptcha_token,
             "X-Wallet-Address": address
         }
         await asyncio.sleep(3)
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
+                    async with session.post(url=url, headers=headers, data=data, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -319,15 +329,14 @@ class FluxAI:
                     continue
                 self.log(
                     f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                    f"{Fore.BLUE + Style.BRIGHT} Error  : {Style.RESET_ALL}"
+                    f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
                     f"{Fore.RED+Style.BRIGHT}Generate Image Failed{Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT} - {Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT}{str(e)}{Style.RESET_ALL}"
                 )
-
-        return None
+                return None
             
-    async def process_user_login(self, address: str, use_proxy: bool, rotate_proxy: bool):
+    async def process_check_connection(self, address: str, use_proxy: bool, rotate_proxy: bool):
         while True:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
             self.log(
@@ -335,20 +344,27 @@ class FluxAI:
                 f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
             )
 
-            login = await self.user_login(address, proxy)
-            if login:
-                self.credits_left[address] = login["creditsLeft"]
+            is_valid = await self.check_connection(proxy)
+            if not is_valid:
+                if rotate_proxy:
+                    proxy = self.rotate_proxy_for_account(address)
 
+                continue
+
+            return True
+            
+    async def process_user_login(self, address: str, use_proxy: bool, rotate_proxy: bool):
+        is_valid = await self.process_check_connection(address, use_proxy, rotate_proxy)
+        if is_valid:
+            proxy = self.get_next_proxy_for_account(address) if use_proxy else None
+
+            login = await self.user_login(address, proxy)
+            if login and login.get("message") == "Login successful":
                 self.log(
                     f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
                     f"{Fore.GREEN+Style.BRIGHT} Login Success {Style.RESET_ALL}"
                 )
                 return True
-
-            if rotate_proxy:
-                proxy = self.rotate_proxy_for_account(address)
-                await asyncio.sleep(5)
-                continue
 
             return False
         
@@ -357,81 +373,68 @@ class FluxAI:
         if logined:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
 
-            self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Credits:{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {self.credits_left[address]} Left {Style.RESET_ALL}"
-            )
+            used_prompts = set()
 
-            self.log(f"{Fore.CYAN+Style.BRIGHT}AI Chat:{Style.RESET_ALL}")
+            while True:
+                self.log(f"{Fore.CYAN+Style.BRIGHT}AI Chat:{Style.RESET_ALL}")
 
-            if self.credits_left[address] > 0:
-                used_prompts = set()
+                available_prompts = [p for p in prompts if p not in used_prompts]
 
-                count = self.credits_left[address]
-                while self.credits_left[address] > 0:
-                    idx = count - self.credits_left[address]
+                prompt = random.choice(available_prompts)
 
-                    available_prompts = [p for p in prompts if p not in used_prompts]
-
-                    prompt = random.choice(available_prompts)
-
-                    self.log(
-                        f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                        f"{Fore.GREEN + Style.BRIGHT} Count {Style.RESET_ALL}"
-                        f"{Fore.WHITE + Style.BRIGHT}{idx+1}{Style.RESET_ALL}                              "
-                    )
-
-                    self.log(
-                        f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                        f"{Fore.YELLOW + Style.BRIGHT} Solving Captcha... {Style.RESET_ALL}"
-                    )
-
-                    solver = await self.solve_recaptcha(address, proxy)
-                    if solver:
-                        self.log(
-                            f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                            f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
-                            f"{Fore.GREEN + Style.BRIGHT}Captcha Solved Successfully{Style.RESET_ALL}"
-                        )
-                        self.log(
-                            f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                            f"{Fore.BLUE + Style.BRIGHT} Prompt : {Style.RESET_ALL}"
-                            f"{Fore.WHITE + Style.BRIGHT}{prompt}{Style.RESET_ALL}"
-                        )
-
-                        generate = await self.generate_image(address, prompt, proxy)
-                        if generate:
-                            self.credits_left[address] = generate["creditsLeft"]
-                            image_url = generate["imageUrl"]
-
-                            with open("images.txt", "a", encoding="utf-8") as file:
-                                file.write(image_url + "\n")
-
-                            self.log(
-                                f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                                f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
-                                f"{Fore.GREEN + Style.BRIGHT}Image Generated Successfully{Style.RESET_ALL}"
-                                f"{Fore.MAGENTA + Style.BRIGHT} - {Style.RESET_ALL}"
-                                f"{Fore.WHITE + Style.BRIGHT}{image_url}{Style.RESET_ALL}"
-                            )
-
-                        else:
-                            break
-
-                    else:
-                        self.log(
-                            f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                            f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
-                            f"{Fore.RED + Style.BRIGHT}Captcha Not Solved{Style.RESET_ALL}"
-                        )
-
-                    await self.print_timer()
-
-            else:
                 self.log(
                     f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
-                    f"{Fore.YELLOW + Style.BRIGHT} No Available Credits Left {Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT} Solving Captcha... {Style.RESET_ALL}"
                 )
+
+                recaptcha_token = await self.solve_recaptcha(proxy)
+                if not recaptcha_token:
+                    self.log(
+                        f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
+                        f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
+                        f"{Fore.RED + Style.BRIGHT}Captcha Not Solved{Style.RESET_ALL}"
+                    )
+                    break
+
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
+                    f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
+                    f"{Fore.GREEN + Style.BRIGHT}Captcha Solved Successfully{Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
+                    f"{Fore.BLUE + Style.BRIGHT} Prompt : {Style.RESET_ALL}"
+                    f"{Fore.WHITE + Style.BRIGHT}{prompt}{Style.RESET_ALL}"
+                )
+
+                generate = await self.generate_image(address, recaptcha_token, prompt, proxy)
+                if generate:
+                    credits = generate["creditsLeft"]
+                    image_url = generate["imageUrl"]
+
+                    with open("images.txt", "a", encoding="utf-8") as file:
+                        file.write(image_url + "\n")
+
+                    self.log(
+                        f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
+                        f"{Fore.BLUE + Style.BRIGHT} Status : {Style.RESET_ALL}"
+                        f"{Fore.GREEN + Style.BRIGHT}Image Generated Successfully{Style.RESET_ALL}"
+                        f"{Fore.MAGENTA + Style.BRIGHT} - {Style.RESET_ALL}"
+                        f"{Fore.WHITE + Style.BRIGHT}{image_url}{Style.RESET_ALL}"
+                    )
+                    self.log(
+                        f"{Fore.MAGENTA + Style.BRIGHT}   >{Style.RESET_ALL}"
+                        f"{Fore.BLUE + Style.BRIGHT} Credits: {Style.RESET_ALL}"
+                        f"{Fore.WHITE + Style.BRIGHT}{credits} Left{Style.RESET_ALL}"
+                    )
+
+                    if credits == 0:
+                        break
+
+                else:
+                    break
+
+                await self.print_timer()
                     
     async def main(self):
         try:
